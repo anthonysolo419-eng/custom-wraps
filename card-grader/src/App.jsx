@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 
 const MODEL = 'claude-sonnet-4-6'
 
@@ -423,6 +423,232 @@ function OverallGrade({ overall }) {
   )
 }
 
+function CameraModal({ onCapture, onClose }) {
+  const videoRef = useRef(null)
+  const streamRef = useRef(null)
+  const [error, setError] = useState(null)
+  const [capturing, setCapturing] = useState(false)
+
+  useEffect(() => {
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
+      .then((stream) => {
+        streamRef.current = stream
+        if (videoRef.current) videoRef.current.srcObject = stream
+      })
+      .catch(() => setError('Camera access denied. Use the upload button instead.'))
+    return () => streamRef.current?.getTracks().forEach((t) => t.stop())
+  }, [])
+
+  const capture = () => {
+    setCapturing(true)
+    const video = videoRef.current
+    const canvas = document.createElement('canvas')
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    canvas.getContext('2d').drawImage(video, 0, 0)
+    canvas.toBlob((blob) => {
+      const file = new File([blob], `card-${Date.now()}.jpg`, { type: 'image/jpeg' })
+      streamRef.current?.getTracks().forEach((t) => t.stop())
+      onCapture(file)
+    }, 'image/jpeg', 0.95)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black flex flex-col">
+      <div className="flex items-center justify-between px-4 py-3 bg-zinc-900 border-b border-zinc-800">
+        <span className="font-bold text-zinc-100">Take Photo</span>
+        <button onClick={onClose} className="text-zinc-400 hover:text-zinc-100 text-2xl leading-none">✕</button>
+      </div>
+      <div className="flex-1 relative overflow-hidden bg-black">
+        {error ? (
+          <div className="absolute inset-0 flex items-center justify-center text-zinc-400 text-sm px-8 text-center">{error}</div>
+        ) : (
+          <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+        )}
+        {/* Card outline guide */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="border-2 border-amber-400/70 rounded-lg" style={{ width: '65%', aspectRatio: '2.5/3.5' }} />
+        </div>
+      </div>
+      <div className="px-4 py-5 bg-zinc-900 border-t border-zinc-800 flex flex-col items-center gap-2">
+        <p className="text-zinc-500 text-xs mb-1">Align card within the guide</p>
+        <button
+          onClick={capture}
+          disabled={!!error || capturing}
+          className="w-16 h-16 rounded-full border-4 border-white flex items-center justify-center disabled:opacity-40"
+          style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}
+        >
+          <span className="text-2xl">📷</span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function generateGradeCard(report, cardName) {
+  return new Promise((resolve) => {
+    const W = 480, H = 640
+    const canvas = document.createElement('canvas')
+    canvas.width = W
+    canvas.height = H
+    const ctx = canvas.getContext('2d')
+
+    // Background
+    const bg = ctx.createLinearGradient(0, 0, W, H)
+    bg.addColorStop(0, '#09090b')
+    bg.addColorStop(1, '#18181b')
+    ctx.fillStyle = bg
+    ctx.fillRect(0, 0, W, H)
+
+    // Gold top bar
+    const gold = ctx.createLinearGradient(0, 0, W, 0)
+    gold.addColorStop(0, '#d97706')
+    gold.addColorStop(0.5, '#f59e0b')
+    gold.addColorStop(1, '#d97706')
+    ctx.fillStyle = gold
+    ctx.fillRect(0, 0, W, 56)
+
+    // Header text
+    ctx.fillStyle = '#000'
+    ctx.font = 'bold 22px Inter, system-ui, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText('VaultGrade AI', W / 2, 36)
+
+    // Tagline
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'
+    ctx.font = '11px Inter, system-ui, sans-serif'
+    ctx.fillText('AI-POWERED PRE-GRADE REPORT', W / 2, 50)
+
+    // Card name
+    ctx.fillStyle = '#a1a1aa'
+    ctx.font = '13px Inter, system-ui, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText(cardName || 'Trading Card', W / 2, 88)
+
+    // Grade circle
+    const grade = report.overall.numericGrade
+    const gradeColor = grade >= 9 ? '#f59e0b' : grade >= 7 ? '#22c55e' : grade >= 5 ? '#eab308' : grade >= 3 ? '#f97316' : '#ef4444'
+    ctx.beginPath()
+    ctx.arc(W / 2, 170, 72, 0, Math.PI * 2)
+    ctx.fillStyle = `${gradeColor}18`
+    ctx.fill()
+    ctx.strokeStyle = gradeColor
+    ctx.lineWidth = 4
+    ctx.stroke()
+
+    // Progress arc
+    const r = 72, c2 = 2 * Math.PI * r
+    ctx.beginPath()
+    ctx.arc(W / 2, 170, r, -Math.PI / 2, -Math.PI / 2 + (grade / 10) * Math.PI * 2)
+    ctx.strokeStyle = gradeColor
+    ctx.lineWidth = 6
+    ctx.lineCap = 'round'
+    ctx.stroke()
+
+    // Grade number
+    ctx.fillStyle = gradeColor
+    ctx.font = 'bold 64px Inter, system-ui, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(grade % 1 === 0 ? grade.toFixed(0) : grade.toFixed(1), W / 2, 170)
+
+    // PSA label
+    ctx.textBaseline = 'alphabetic'
+    ctx.fillStyle = gradeColor
+    ctx.font = 'bold 16px Inter, system-ui, sans-serif'
+    ctx.fillText(report.overall.psaLabel, W / 2, 264)
+
+    // Divider
+    ctx.strokeStyle = '#3f3f46'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(32, 286)
+    ctx.lineTo(W - 32, 286)
+    ctx.stroke()
+
+    // Category scores
+    const cats = [
+      ['Centering', report.centering?.score],
+      ['Corners', report.corners?.score],
+      ['Edges', report.edges?.score],
+      ['Surface', report.surface?.score],
+      ['Print Quality', report.printQuality?.score],
+    ]
+    const colW = (W - 64) / 2
+    cats.forEach(([label, score], i) => {
+      const col = i % 2
+      const row = Math.floor(i / 2)
+      const x = 40 + col * (colW + 16)
+      const y = 310 + row * 58
+      const sc = score || 0
+      const sc_color = sc >= 9 ? '#f59e0b' : sc >= 7 ? '#22c55e' : sc >= 5 ? '#eab308' : sc >= 3 ? '#f97316' : '#ef4444'
+
+      // Card bg
+      ctx.fillStyle = '#27272a'
+      ctx.beginPath()
+      ctx.roundRect(x, y, colW, 46, 8)
+      ctx.fill()
+
+      // Score bar
+      ctx.fillStyle = `${sc_color}30`
+      ctx.beginPath()
+      ctx.roundRect(x, y, colW * (sc / 10), 46, 8)
+      ctx.fill()
+
+      ctx.fillStyle = '#a1a1aa'
+      ctx.font = '11px Inter, system-ui, sans-serif'
+      ctx.textAlign = 'left'
+      ctx.textBaseline = 'alphabetic'
+      ctx.fillText(label.toUpperCase(), x + 10, y + 18)
+
+      ctx.fillStyle = sc_color
+      ctx.font = 'bold 18px Inter, system-ui, sans-serif'
+      ctx.fillText(sc % 1 === 0 ? sc.toFixed(0) : sc.toFixed(1), x + 10, y + 37)
+    })
+
+    // Footer
+    ctx.strokeStyle = '#3f3f46'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(32, 550)
+    ctx.lineTo(W - 32, 550)
+    ctx.stroke()
+
+    ctx.fillStyle = '#52525b'
+    ctx.font = '11px Inter, system-ui, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText(`AI Pre-Grade · ${new Date().toLocaleDateString()} · vaultgrade.ai`, W / 2, 574)
+    ctx.fillStyle = '#3f3f46'
+    ctx.fillText('For reference only — not an official PSA/BGS grade', W / 2, 592)
+
+    resolve(canvas.toDataURL('image/png'))
+  })
+}
+
+function copyListingText(report, cardName) {
+  const cats = [
+    ['Centering', report.centering?.score],
+    ['Corners', report.corners?.score],
+    ['Edges', report.edges?.score],
+    ['Surface', report.surface?.score],
+    ['Print Quality', report.printQuality?.score],
+  ]
+  const lines = [
+    `🏆 VaultGrade AI Pre-Grade Report`,
+    `━━━━━━━━━━━━━━━━━━━━━━`,
+    cardName ? `Card: ${cardName}` : null,
+    `Overall Grade: ${report.overall.psaLabel}`,
+    `━━━━━━━━━━━━━━━━━━━━━━`,
+    ...cats.map(([l, s]) => `${l}: ${s % 1 === 0 ? s.toFixed(0) : s.toFixed(1)}/10`),
+    `━━━━━━━━━━━━━━━━━━━━━━`,
+    report.overall.summary,
+    ``,
+    `Graded by VaultGrade AI — AI-powered pre-grade tool`,
+    `(This is an AI estimate, not an official PSA/BGS/SGC grade)`,
+  ].filter(Boolean)
+  navigator.clipboard.writeText(lines.join('\n'))
+}
+
 export default function App() {
   const [images, setImages] = useState([])
   const [apiKey, setApiKey] = useState(import.meta.env.VITE_ANTHROPIC_API_KEY || '')
@@ -433,7 +659,11 @@ export default function App() {
   const [report, setReport] = useState(null)
   const [error, setError] = useState(null)
   const [selectedCategory, setSelectedCategory] = useState(null)
+  const [showCamera, setShowCamera] = useState(false)
+  const [cardName, setCardName] = useState('')
+  const [copied, setCopied] = useState(false)
   const fileInputRef = useRef(null)
+  const cameraInputRef = useRef(null)
 
   const addImages = useCallback((files) => {
     const imageFiles = Array.from(files)
@@ -468,6 +698,7 @@ export default function App() {
     setError(null)
     setReport(null)
     setSelectedCategory(null)
+    setShowCamera(false)
 
     try {
       setLoadingStep('Encoding images…')
@@ -554,6 +785,13 @@ export default function App() {
   }
 
   return (
+    <>
+    {showCamera && (
+      <CameraModal
+        onCapture={(file) => { addImages([file]); setShowCamera(false) }}
+        onClose={() => setShowCamera(false)}
+      />
+    )}
     <div className="min-h-screen bg-zinc-950" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
       {/* Header */}
       <header className="border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur sticky top-0 z-10">
@@ -624,6 +862,17 @@ export default function App() {
           </button>
         )}
 
+        {/* Card name */}
+        <div className="flex gap-2 items-center">
+          <input
+            type="text"
+            value={cardName}
+            onChange={(e) => setCardName(e.target.value)}
+            placeholder="Card name (optional — e.g. 2003 Topps LeBron James RC #221)"
+            className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-zinc-600"
+          />
+        </div>
+
         {/* Upload Zone */}
         <div
           onDrop={handleDrop}
@@ -637,8 +886,9 @@ export default function App() {
           }`}
         >
           <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileInput} className="hidden" />
+          <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleFileInput} className="hidden" />
           {images.length === 0 ? (
-            <div className="space-y-3">
+            <div className="space-y-4">
               <div className="w-14 h-14 mx-auto rounded-2xl flex items-center justify-center text-2xl"
                 style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)' }}>
                 🃏
@@ -647,7 +897,27 @@ export default function App() {
                 <p className="text-zinc-200 font-semibold text-sm mb-1">
                   Drop card image <span className="text-amber-400">here</span> or click to browse
                 </p>
-                <p className="text-zinc-500 text-xs">Up to 2 images (front + back) — JPG, PNG, WebP</p>
+                <p className="text-zinc-500 text-xs mb-4">Up to 2 images (front + back) — JPG, PNG, WebP</p>
+                <div className="flex gap-3 justify-center" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="px-4 py-2 rounded-lg border border-zinc-700 text-zinc-300 text-xs font-semibold hover:border-zinc-500 transition-all"
+                  >
+                    📁 Browse Files
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (/Mobi|Android/i.test(navigator.userAgent)) {
+                        cameraInputRef.current?.click()
+                      } else {
+                        setShowCamera(true)
+                      }
+                    }}
+                    className="px-4 py-2 rounded-lg border border-amber-500/40 text-amber-400 text-xs font-semibold hover:border-amber-500 transition-all"
+                  >
+                    📷 Take Photo
+                  </button>
+                </div>
               </div>
             </div>
           ) : (
@@ -760,9 +1030,39 @@ export default function App() {
               </div>
             </div>
 
+            {/* Seller Export Tools */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-3">
+              <p className="text-xs font-semibold text-zinc-500 uppercase tracking-widest">Seller Tools</p>
+              <p className="text-zinc-400 text-xs">Share this report with buyers — attach the grade card image to your listing or copy the text summary.</p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <button
+                  onClick={async () => {
+                    const dataUrl = await generateGradeCard(report, cardName)
+                    const a = document.createElement('a')
+                    a.href = dataUrl
+                    a.download = `vaultgrade-${Date.now()}.png`
+                    a.click()
+                  }}
+                  className="flex-1 py-2.5 rounded-lg font-semibold text-sm flex items-center justify-center gap-2 transition-all border border-amber-500/40 text-amber-400 hover:border-amber-500 hover:bg-amber-500/5"
+                >
+                  ⬇ Download Grade Card
+                </button>
+                <button
+                  onClick={() => {
+                    copyListingText(report, cardName)
+                    setCopied(true)
+                    setTimeout(() => setCopied(false), 2500)
+                  }}
+                  className="flex-1 py-2.5 rounded-lg font-semibold text-sm flex items-center justify-center gap-2 transition-all border border-zinc-700 text-zinc-300 hover:border-zinc-500"
+                >
+                  {copied ? '✓ Copied!' : '📋 Copy for Listing'}
+                </button>
+              </div>
+            </div>
+
             {/* Reset */}
             <button
-              onClick={() => { setImages([]); setReport(null); setError(null); setSelectedCategory(null) }}
+              onClick={() => { setImages([]); setReport(null); setError(null); setSelectedCategory(null); setCardName('') }}
               className="w-full py-3 rounded-xl border border-zinc-700 text-zinc-400 text-sm font-semibold hover:border-zinc-600 hover:text-zinc-200 transition-all"
             >
               Grade Another Card
@@ -782,5 +1082,6 @@ export default function App() {
         }
       `}</style>
     </div>
+    </>
   )
 }
