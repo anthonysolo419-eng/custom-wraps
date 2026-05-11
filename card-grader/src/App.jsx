@@ -23,44 +23,60 @@ Then calculate an OVERALL PSA-style numeric grade (1–10 integer or .5 step) us
 - 2 GOOD: Heavily worn/damaged
 - 1 POOR: Completely destroyed
 
+IMPORTANT: For each issue, you must estimate its location on the card as normalized coordinates:
+- x: horizontal position from left edge (0.0 = far left, 1.0 = far right, 0.5 = center)
+- y: vertical position from top edge (0.0 = top, 1.0 = bottom, 0.5 = center)
+
+Examples: top-left corner = {x:0.05, y:0.05}, right edge center = {x:0.97, y:0.5}, card center = {x:0.5, y:0.5}
+
 Return ONLY a valid JSON object with no markdown, no explanation, no extra text:
 {
   "centering": {
     "score": <number 1-10>,
     "label": "<e.g. 'Excellent' | 'Near Mint' | 'Gem Mint'>",
     "explanation": "<1-2 sentence expert analysis>",
-    "issues": ["<specific issue>", ...]
+    "issues": [
+      { "description": "<specific issue>", "x": <0-1>, "y": <0-1> }
+    ]
   },
   "corners": {
     "score": <number 1-10>,
     "label": "<label>",
     "explanation": "<analysis>",
-    "issues": ["<issue>", ...]
+    "issues": [
+      { "description": "<specific issue>", "x": <0-1>, "y": <0-1> }
+    ]
   },
   "edges": {
     "score": <number 1-10>,
     "label": "<label>",
     "explanation": "<analysis>",
-    "issues": ["<issue>", ...]
+    "issues": [
+      { "description": "<specific issue>", "x": <0-1>, "y": <0-1> }
+    ]
   },
   "surface": {
     "score": <number 1-10>,
     "label": "<label>",
     "explanation": "<analysis>",
-    "issues": ["<issue>", ...]
+    "issues": [
+      { "description": "<specific issue>", "x": <0-1>, "y": <0-1> }
+    ]
   },
   "printQuality": {
     "score": <number 1-10>,
     "label": "<label>",
     "explanation": "<analysis>",
-    "issues": ["<issue>", ...]
+    "issues": [
+      { "description": "<specific issue>", "x": <0-1>, "y": <0-1> }
+    ]
   },
   "overall": {
     "numericGrade": <number>,
     "psaLabel": "<e.g. 'GEM MINT 10' | 'NM-MT 8'>",
     "summary": "<2-3 sentence overall assessment>",
-    "gradeHurting": ["<factor hurting the grade>", ...],
-    "submissionTips": ["<actionable tip>", ...]
+    "gradeHurting": ["<factor hurting the grade>"],
+    "submissionTips": ["<actionable tip>"]
   }
 }`
 
@@ -70,6 +86,14 @@ const CATEGORY_CONFIG = {
   edges: { label: 'Edges', description: 'Condition of all 4 edges', icon: '▭' },
   surface: { label: 'Surface', description: 'Card face & back condition', icon: '◈' },
   printQuality: { label: 'Print Quality', description: 'Color, focus & registration', icon: '◉' },
+}
+
+const CATEGORY_COLORS = {
+  centering: '#3b82f6',
+  corners: '#f59e0b',
+  edges: '#22c55e',
+  surface: '#ef4444',
+  printQuality: '#a855f7',
 }
 
 const PSA_GRADES = {
@@ -109,6 +133,11 @@ function fileToBase64(file) {
   })
 }
 
+function getIssueDescription(issue) {
+  if (typeof issue === 'string') return issue
+  return issue.description || ''
+}
+
 function ScoreRing({ score, size = 88 }) {
   const r = size * 0.41
   const c = 2 * Math.PI * r
@@ -141,14 +170,150 @@ function ScoreRing({ score, size = 88 }) {
   )
 }
 
-function CategoryCard({ categoryKey, data }) {
+function AnnotatedImage({ imageFile, report, selectedCategory, onSelectCategory }) {
+  const [tooltip, setTooltip] = useState(null)
+  const containerRef = useRef(null)
+
+  const allMarkers = []
+  Object.keys(CATEGORY_CONFIG).forEach((cat) => {
+    const issues = report[cat]?.issues || []
+    issues.forEach((issue, i) => {
+      if (issue && typeof issue === 'object' && issue.x !== undefined && issue.y !== undefined) {
+        allMarkers.push({
+          description: issue.description,
+          x: issue.x,
+          y: issue.y,
+          category: cat,
+          color: CATEGORY_COLORS[cat],
+          id: `${cat}-${i}`,
+        })
+      }
+    })
+  })
+
+  const visibleMarkers = selectedCategory
+    ? allMarkers.filter((m) => m.category === selectedCategory)
+    : allMarkers
+
+  return (
+    <div className="space-y-3">
+      {/* Category filter pills */}
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={() => onSelectCategory(null)}
+          className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
+            selectedCategory === null
+              ? 'bg-zinc-200 text-zinc-900 border-zinc-200'
+              : 'bg-transparent text-zinc-400 border-zinc-700 hover:border-zinc-500'
+          }`}
+        >
+          All Flaws
+        </button>
+        {Object.keys(CATEGORY_CONFIG).map((cat) => {
+          const count = allMarkers.filter((m) => m.category === cat).length
+          if (count === 0) return null
+          return (
+            <button
+              key={cat}
+              onClick={() => onSelectCategory(selectedCategory === cat ? null : cat)}
+              className="px-3 py-1 rounded-full text-xs font-semibold border transition-all"
+              style={{
+                backgroundColor: selectedCategory === cat ? CATEGORY_COLORS[cat] : 'transparent',
+                color: selectedCategory === cat ? '#000' : CATEGORY_COLORS[cat],
+                borderColor: CATEGORY_COLORS[cat],
+              }}
+            >
+              {CATEGORY_CONFIG[cat].label} ({count})
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Annotated image */}
+      <div ref={containerRef} className="relative inline-block w-full rounded-xl overflow-hidden border border-zinc-800">
+        <img
+          src={URL.createObjectURL(imageFile)}
+          alt="Card front"
+          className="w-full object-contain rounded-xl"
+          style={{ maxHeight: '480px', objectFit: 'contain', background: '#18181b' }}
+        />
+
+        {visibleMarkers.map((marker) => (
+          <div
+            key={marker.id}
+            className="absolute"
+            style={{
+              left: `${marker.x * 100}%`,
+              top: `${marker.y * 100}%`,
+              transform: 'translate(-50%, -50%)',
+              zIndex: 10,
+            }}
+            onMouseEnter={() => setTooltip(marker)}
+            onMouseLeave={() => setTooltip(null)}
+          >
+            {/* Pulse ring */}
+            <div
+              className="absolute inset-0 rounded-full animate-ping opacity-60"
+              style={{ backgroundColor: marker.color, transform: 'scale(1.8)' }}
+            />
+            {/* Dot */}
+            <div
+              className="relative w-4 h-4 rounded-full border-2 border-white cursor-pointer shadow-lg"
+              style={{ backgroundColor: marker.color, boxShadow: `0 0 8px ${marker.color}` }}
+            />
+
+            {/* Tooltip */}
+            {tooltip?.id === marker.id && (
+              <div
+                className="absolute z-20 w-44 pointer-events-none"
+                style={{
+                  bottom: '110%',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                }}
+              >
+                <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-2.5 shadow-2xl text-xs">
+                  <div className="font-bold mb-1" style={{ color: marker.color }}>
+                    {CATEGORY_CONFIG[marker.category].label}
+                  </div>
+                  <div className="text-zinc-300 leading-relaxed">{marker.description}</div>
+                </div>
+                <div
+                  className="w-2 h-2 rotate-45 mx-auto -mt-1"
+                  style={{ backgroundColor: '#27272a', border: '1px solid #3f3f46', borderTop: 'none', borderLeft: 'none' }}
+                />
+              </div>
+            )}
+          </div>
+        ))}
+
+        {allMarkers.length === 0 && (
+          <div className="absolute inset-0 flex items-end justify-center pb-3 pointer-events-none">
+            <span className="bg-zinc-900/80 text-zinc-400 text-xs px-3 py-1 rounded-full">
+              No specific flaw locations detected
+            </span>
+          </div>
+        )}
+      </div>
+
+      <p className="text-zinc-600 text-xs">Hover a marker to see the flaw detail</p>
+    </div>
+  )
+}
+
+function CategoryCard({ categoryKey, data, isHighlighted, onClick }) {
   const [expanded, setExpanded] = useState(false)
   const cfg = CATEGORY_CONFIG[categoryKey]
+  const color = CATEGORY_COLORS[categoryKey]
 
   return (
     <div
-      className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden cursor-pointer hover:border-zinc-700 transition-colors"
-      onClick={() => setExpanded((e) => !e)}
+      className="bg-zinc-900 border rounded-xl overflow-hidden cursor-pointer transition-all"
+      style={{ borderColor: isHighlighted ? color : 'rgb(39,39,42)' }}
+      onClick={() => {
+        setExpanded((e) => !e)
+        onClick()
+      }}
     >
       <div className="p-4 flex items-center gap-4">
         <ScoreRing score={data.score} size={72} />
@@ -156,14 +321,16 @@ function CategoryCard({ categoryKey, data }) {
           <div className="flex items-center gap-2 mb-0.5">
             <span className="text-zinc-400 text-xs">{cfg.icon}</span>
             <span className="font-bold text-zinc-100 text-sm uppercase tracking-wider">{cfg.label}</span>
+            {isHighlighted && (
+              <span className="text-xs px-1.5 py-0.5 rounded font-semibold" style={{ background: `${color}20`, color }}>
+                Showing on image
+              </span>
+            )}
           </div>
           <p className="text-zinc-500 text-xs mb-1">{cfg.description}</p>
           <span
             className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold"
-            style={{
-              backgroundColor: `${getScoreColor(data.score)}20`,
-              color: getScoreColor(data.score),
-            }}
+            style={{ backgroundColor: `${getScoreColor(data.score)}20`, color: getScoreColor(data.score) }}
           >
             {data.label}
           </span>
@@ -174,20 +341,19 @@ function CategoryCard({ categoryKey, data }) {
       {expanded && (
         <div className="border-t border-zinc-800 px-4 pb-4 pt-3 space-y-3">
           <p className="text-zinc-300 text-sm leading-relaxed">{data.explanation}</p>
-          {data.issues && data.issues.length > 0 && (
+          {data.issues && data.issues.length > 0 ? (
             <div>
               <p className="text-zinc-500 text-xs uppercase tracking-wider mb-2 font-semibold">Issues Detected</p>
               <ul className="space-y-1">
                 {data.issues.map((issue, i) => (
                   <li key={i} className="flex items-start gap-2 text-sm text-zinc-400">
-                    <span className="text-red-400 mt-0.5 flex-shrink-0">✕</span>
-                    {issue}
+                    <span className="mt-0.5 flex-shrink-0" style={{ color }}>✕</span>
+                    {getIssueDescription(issue)}
                   </li>
                 ))}
               </ul>
             </div>
-          )}
-          {(!data.issues || data.issues.length === 0) && (
+          ) : (
             <div className="flex items-center gap-2 text-sm text-green-400">
               <span>✓</span>
               <span>No issues detected in this category</span>
@@ -222,22 +388,17 @@ function OverallGrade({ overall }) {
             {overall.psaLabel}
           </p>
         </div>
-        <div className="flex-1 space-y-3">
+        <div className="flex-1">
           <p className="text-zinc-200 text-sm leading-relaxed">{overall.summary}</p>
         </div>
       </div>
 
       {overall.gradeHurting && overall.gradeHurting.length > 0 && (
         <div className="mt-5 pt-5 border-t border-zinc-800">
-          <p className="text-xs uppercase tracking-wider font-semibold text-zinc-500 mb-3">
-            What's Hurting Your Grade
-          </p>
+          <p className="text-xs uppercase tracking-wider font-semibold text-zinc-500 mb-3">What's Hurting Your Grade</p>
           <div className="flex flex-wrap gap-2">
             {overall.gradeHurting.map((factor, i) => (
-              <span
-                key={i}
-                className="px-3 py-1 rounded-full text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20"
-              >
+              <span key={i} className="px-3 py-1 rounded-full text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20">
                 {factor}
               </span>
             ))}
@@ -247,9 +408,7 @@ function OverallGrade({ overall }) {
 
       {overall.submissionTips && overall.submissionTips.length > 0 && (
         <div className="mt-5 pt-5 border-t border-zinc-800">
-          <p className="text-xs uppercase tracking-wider font-semibold text-zinc-500 mb-3">
-            Submission Tips
-          </p>
+          <p className="text-xs uppercase tracking-wider font-semibold text-zinc-500 mb-3">Submission Tips</p>
           <ul className="space-y-2">
             {overall.submissionTips.map((tip, i) => (
               <li key={i} className="flex items-start gap-2 text-sm text-zinc-300">
@@ -264,31 +423,6 @@ function OverallGrade({ overall }) {
   )
 }
 
-function ImagePreview({ images, onRemove }) {
-  return (
-    <div className="flex gap-3 flex-wrap">
-      {images.map((img, i) => (
-        <div key={i} className="relative group">
-          <img
-            src={URL.createObjectURL(img)}
-            alt={i === 0 ? 'Card front' : 'Card back'}
-            className="w-24 h-32 object-cover rounded-lg border border-zinc-700"
-          />
-          <div className="absolute top-1 left-1 bg-zinc-900/90 text-amber-400 text-xs px-1.5 py-0.5 rounded font-semibold">
-            {i === 0 ? 'FRONT' : 'BACK'}
-          </div>
-          <button
-            onClick={() => onRemove(i)}
-            className="absolute top-1 right-1 bg-red-600 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-          >
-            ✕
-          </button>
-        </div>
-      ))}
-    </div>
-  )
-}
-
 export default function App() {
   const [images, setImages] = useState([])
   const [apiKey, setApiKey] = useState(import.meta.env.VITE_ANTHROPIC_API_KEY || '')
@@ -298,6 +432,7 @@ export default function App() {
   const [loadingStep, setLoadingStep] = useState('')
   const [report, setReport] = useState(null)
   const [error, setError] = useState(null)
+  const [selectedCategory, setSelectedCategory] = useState(null)
   const fileInputRef = useRef(null)
 
   const addImages = useCallback((files) => {
@@ -321,28 +456,18 @@ export default function App() {
     addImages(e.dataTransfer.files)
   }, [addImages])
 
-  const handleDragOver = (e) => {
-    e.preventDefault()
-    setIsDragging(true)
-  }
-
+  const handleDragOver = (e) => { e.preventDefault(); setIsDragging(true) }
   const handleDragLeave = () => setIsDragging(false)
-
-  const handleFileInput = (e) => {
-    addImages(e.target.files)
-    e.target.value = ''
-  }
+  const handleFileInput = (e) => { addImages(e.target.files); e.target.value = '' }
 
   const gradeCard = async () => {
     if (images.length === 0) return
-    if (!apiKey.trim()) {
-      setError('Please enter your Anthropic API key.')
-      return
-    }
+    if (!apiKey.trim()) { setError('Please enter your Anthropic API key.'); return }
 
     setLoading(true)
     setError(null)
     setReport(null)
+    setSelectedCategory(null)
 
     try {
       setLoadingStep('Encoding images…')
@@ -351,14 +476,8 @@ export default function App() {
           const b64 = await fileToBase64(file)
           const mediaType = file.type || 'image/jpeg'
           return [
-            {
-              type: 'text',
-              text: i === 0 ? 'Card front image:' : 'Card back image:',
-            },
-            {
-              type: 'image',
-              source: { type: 'base64', media_type: mediaType, data: b64 },
-            },
+            { type: 'text', text: i === 0 ? 'Card front image:' : 'Card back image:' },
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
           ]
         })
       )
@@ -376,15 +495,13 @@ export default function App() {
           model: MODEL,
           max_tokens: 2048,
           system: SYSTEM_PROMPT,
-          messages: [
-            {
-              role: 'user',
-              content: [
-                ...imageBlocks.flat(),
-                { type: 'text', text: 'Please grade this trading card and return the JSON analysis.' },
-              ],
-            },
-          ],
+          messages: [{
+            role: 'user',
+            content: [
+              ...imageBlocks.flat(),
+              { type: 'text', text: 'Please grade this trading card and return the JSON analysis with exact flaw locations.' },
+            ],
+          }],
         }),
       })
 
@@ -422,24 +539,19 @@ export default function App() {
 
   const avgScore = report
     ? (
-        [
-          report.centering?.score,
-          report.corners?.score,
-          report.edges?.score,
-          report.surface?.score,
-          report.printQuality?.score,
-        ]
+        ['centering', 'corners', 'edges', 'surface', 'printQuality']
+          .map((k) => report[k]?.score)
           .filter(Boolean)
           .reduce((a, b) => a + b, 0) /
-        [
-          report.centering?.score,
-          report.corners?.score,
-          report.edges?.score,
-          report.surface?.score,
-          report.printQuality?.score,
-        ].filter(Boolean).length
+        ['centering', 'corners', 'edges', 'surface', 'printQuality']
+          .map((k) => report[k]?.score)
+          .filter(Boolean).length
       ).toFixed(1)
     : null
+
+  const handleCategoryClick = (cat) => {
+    setSelectedCategory((prev) => (prev === cat ? null : cat))
+  }
 
   return (
     <div className="min-h-screen bg-zinc-950" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
@@ -447,10 +559,8 @@ export default function App() {
       <header className="border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur sticky top-0 z-10">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-black"
-              style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}
-            >
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-black"
+              style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>
               V
             </div>
             <div>
@@ -459,10 +569,7 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-2 text-xs text-zinc-500">
-            <span
-              className="w-1.5 h-1.5 rounded-full"
-              style={{ background: '#f59e0b', boxShadow: '0 0 4px #f59e0b' }}
-            />
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: '#f59e0b', boxShadow: '0 0 4px #f59e0b' }} />
             Powered by Claude Vision
           </div>
         </div>
@@ -473,23 +580,16 @@ export default function App() {
         <div className="text-center pt-4 pb-2">
           <h1 className="text-3xl sm:text-4xl font-black text-zinc-100 leading-tight mb-2">
             Professional Card{' '}
-            <span
-              style={{
-                background: 'linear-gradient(135deg, #f59e0b, #d97706, #fbbf24)',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-              }}
-            >
+            <span style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706, #fbbf24)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
               Grading
             </span>
           </h1>
           <p className="text-zinc-400 text-sm max-w-md mx-auto">
-            Upload 1–2 card images. Claude Vision analyzes centering, corners, edges, surface, and print quality to
-            deliver a PSA-style grade report.
+            Upload a card photo. Claude Vision grades it and pins every flaw directly on the image.
           </p>
         </div>
 
-        {/* API Key Input */}
+        {/* API Key */}
         {showKeyInput && (
           <div className="bg-zinc-900 border border-amber-500/30 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-3">
@@ -518,12 +618,8 @@ export default function App() {
             </div>
           </div>
         )}
-
         {!showKeyInput && (
-          <button
-            onClick={() => setShowKeyInput(true)}
-            className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
-          >
+          <button onClick={() => setShowKeyInput(true)} className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors">
             Change API key
           </button>
         )}
@@ -535,75 +631,64 @@ export default function App() {
           onDragLeave={handleDragLeave}
           onClick={() => images.length < 2 && fileInputRef.current?.click()}
           className={`rounded-2xl border-2 border-dashed p-8 text-center transition-all cursor-pointer ${
-            isDragging
-              ? 'border-amber-500 bg-amber-500/5'
-              : images.length >= 2
-              ? 'border-zinc-700 cursor-default'
-              : 'border-zinc-700 hover:border-zinc-600 hover:bg-zinc-900/50'
+            isDragging ? 'border-amber-500 bg-amber-500/5'
+            : images.length >= 2 ? 'border-zinc-700 cursor-default'
+            : 'border-zinc-700 hover:border-zinc-600 hover:bg-zinc-900/50'
           }`}
         >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            onChange={handleFileInput}
-            className="hidden"
-          />
-
+          <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileInput} className="hidden" />
           {images.length === 0 ? (
             <div className="space-y-3">
-              <div
-                className="w-14 h-14 mx-auto rounded-2xl flex items-center justify-center text-2xl"
-                style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)' }}
-              >
+              <div className="w-14 h-14 mx-auto rounded-2xl flex items-center justify-center text-2xl"
+                style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)' }}>
                 🃏
               </div>
               <div>
                 <p className="text-zinc-200 font-semibold text-sm mb-1">
-                  Drop card image{' '}
-                  <span className="text-amber-400">here</span> or click to browse
+                  Drop card image <span className="text-amber-400">here</span> or click to browse
                 </p>
                 <p className="text-zinc-500 text-xs">Up to 2 images (front + back) — JPG, PNG, WebP</p>
               </div>
             </div>
           ) : (
             <div className="space-y-4">
-              <ImagePreview images={images} onRemove={removeImage} />
-              {images.length < 2 && (
-                <p className="text-zinc-500 text-xs">
-                  + Add back image (optional)
-                </p>
-              )}
-              {images.length >= 2 && (
-                <p className="text-zinc-500 text-xs">Both sides loaded. Ready to grade.</p>
-              )}
+              <div className="flex gap-3 flex-wrap justify-center">
+                {images.map((img, i) => (
+                  <div key={i} className="relative group">
+                    <img src={URL.createObjectURL(img)} alt={i === 0 ? 'Card front' : 'Card back'}
+                      className="w-24 h-32 object-cover rounded-lg border border-zinc-700" />
+                    <div className="absolute top-1 left-1 bg-zinc-900/90 text-amber-400 text-xs px-1.5 py-0.5 rounded font-semibold">
+                      {i === 0 ? 'FRONT' : 'BACK'}
+                    </div>
+                    <button onClick={(e) => { e.stopPropagation(); removeImage(i) }}
+                      className="absolute top-1 right-1 bg-red-600 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {images.length < 2 && <p className="text-zinc-500 text-xs">+ Add back image (optional)</p>}
+              {images.length >= 2 && <p className="text-zinc-500 text-xs">Both sides loaded. Ready to grade.</p>}
             </div>
           )}
         </div>
 
         {/* Error */}
         {error && (
-          <div className="bg-red-950/40 border border-red-500/30 rounded-xl px-4 py-3 text-red-400 text-sm">
-            {error}
-          </div>
+          <div className="bg-red-950/40 border border-red-500/30 rounded-xl px-4 py-3 text-red-400 text-sm">{error}</div>
         )}
 
         {/* Grade Button */}
         <button
           onClick={gradeCard}
           disabled={images.length === 0 || loading || !apiKey.trim()}
-          className="w-full py-4 rounded-xl font-black text-base tracking-wider uppercase transition-all disabled:opacity-40 disabled:cursor-not-allowed relative overflow-hidden"
+          className="w-full py-4 rounded-xl font-black text-base tracking-wider uppercase transition-all disabled:opacity-40 disabled:cursor-not-allowed"
           style={{
-            background:
-              images.length > 0 && !loading && apiKey.trim()
-                ? 'linear-gradient(135deg, #f59e0b, #d97706)'
-                : 'rgba(245,158,11,0.3)',
+            background: images.length > 0 && !loading && apiKey.trim()
+              ? 'linear-gradient(135deg, #f59e0b, #d97706)'
+              : 'rgba(245,158,11,0.3)',
             color: '#000',
-            boxShadow:
-              images.length > 0 && !loading && apiKey.trim()
-                ? '0 0 24px rgba(245,158,11,0.4)'
-                : 'none',
+            boxShadow: images.length > 0 && !loading && apiKey.trim() ? '0 0 24px rgba(245,158,11,0.4)' : 'none',
           }}
         >
           {loading ? (
@@ -611,14 +696,28 @@ export default function App() {
               <span className="animate-spin inline-block w-4 h-4 border-2 border-black/30 border-t-black rounded-full" />
               {loadingStep || 'Grading…'}
             </span>
-          ) : (
-            '⚡ Grade This Card'
-          )}
+          ) : '⚡ Grade This Card'}
         </button>
 
         {/* Report */}
         {report && (
-          <div className="space-y-6 animate-in" style={{ animation: 'fadeIn 0.4s ease-out' }}>
+          <div className="space-y-6" style={{ animation: 'fadeIn 0.4s ease-out' }}>
+
+            {/* Annotated Image */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="h-px flex-1 bg-zinc-800" />
+                <span className="text-xs font-semibold text-zinc-500 uppercase tracking-widest">Flaw Map</span>
+                <div className="h-px flex-1 bg-zinc-800" />
+              </div>
+              <AnnotatedImage
+                imageFile={images[0]}
+                report={report}
+                selectedCategory={selectedCategory}
+                onSelectCategory={(cat) => setSelectedCategory(cat)}
+              />
+            </div>
+
             {/* Overall */}
             <div>
               <div className="flex items-center gap-2 mb-3">
@@ -636,28 +735,26 @@ export default function App() {
                 <span className="text-xs font-semibold text-zinc-500 uppercase tracking-widest">Category Breakdown</span>
                 <div className="h-px flex-1 bg-zinc-800" />
               </div>
-
-              {/* Average bar */}
               {avgScore && (
                 <div className="mb-4 p-3 bg-zinc-900 border border-zinc-800 rounded-xl flex items-center gap-4">
                   <div className="text-zinc-500 text-xs uppercase tracking-wider font-semibold">Avg Score</div>
                   <div className="flex-1 bg-zinc-800 rounded-full h-2 overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-all duration-700"
-                      style={{
-                        width: `${(avgScore / 10) * 100}%`,
-                        background: getScoreColor(parseFloat(avgScore)),
-                      }}
-                    />
+                    <div className="h-full rounded-full transition-all duration-700"
+                      style={{ width: `${(avgScore / 10) * 100}%`, background: getScoreColor(parseFloat(avgScore)) }} />
                   </div>
                   <span className={`font-black text-sm ${getScoreTextClass(parseFloat(avgScore))}`}>{avgScore}</span>
                 </div>
               )}
-
               <div className="space-y-3">
                 {Object.keys(CATEGORY_CONFIG).map((key) =>
                   report[key] ? (
-                    <CategoryCard key={key} categoryKey={key} data={report[key]} />
+                    <CategoryCard
+                      key={key}
+                      categoryKey={key}
+                      data={report[key]}
+                      isHighlighted={selectedCategory === key}
+                      onClick={() => handleCategoryClick(key)}
+                    />
                   ) : null
                 )}
               </div>
@@ -665,11 +762,7 @@ export default function App() {
 
             {/* Reset */}
             <button
-              onClick={() => {
-                setImages([])
-                setReport(null)
-                setError(null)
-              }}
+              onClick={() => { setImages([]); setReport(null); setError(null); setSelectedCategory(null) }}
               className="w-full py-3 rounded-xl border border-zinc-700 text-zinc-400 text-sm font-semibold hover:border-zinc-600 hover:text-zinc-200 transition-all"
             >
               Grade Another Card
