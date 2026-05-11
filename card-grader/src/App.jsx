@@ -512,7 +512,7 @@ function generateGradeCard(report, cardName) {
     ctx.fillStyle = '#000'
     ctx.font = 'bold 22px Inter, system-ui, sans-serif'
     ctx.textAlign = 'center'
-    ctx.fillText('VaultGrade AI', W / 2, 36)
+    ctx.fillText('CardScore AI', W / 2, 36)
 
     // Tagline
     ctx.fillStyle = 'rgba(0,0,0,0.6)'
@@ -617,7 +617,7 @@ function generateGradeCard(report, cardName) {
     ctx.fillStyle = '#52525b'
     ctx.font = '11px Inter, system-ui, sans-serif'
     ctx.textAlign = 'center'
-    ctx.fillText(`AI Pre-Grade · ${new Date().toLocaleDateString()} · vaultgrade.ai`, W / 2, 574)
+    ctx.fillText(`AI Pre-Grade · ${new Date().toLocaleDateString()} · cardscore.ai`, W / 2, 574)
     ctx.fillStyle = '#3f3f46'
     ctx.fillText('For reference only — not an official PSA/BGS grade', W / 2, 592)
 
@@ -634,7 +634,7 @@ function copyListingText(report, cardName) {
     ['Print Quality', report.printQuality?.score],
   ]
   const lines = [
-    `🏆 VaultGrade AI Pre-Grade Report`,
+    `🏆 CardScore AI Pre-Grade Report`,
     `━━━━━━━━━━━━━━━━━━━━━━`,
     cardName ? `Card: ${cardName}` : null,
     `Overall Grade: ${report.overall.psaLabel}`,
@@ -643,7 +643,7 @@ function copyListingText(report, cardName) {
     `━━━━━━━━━━━━━━━━━━━━━━`,
     report.overall.summary,
     ``,
-    `Graded by VaultGrade AI — AI-powered pre-grade tool`,
+    `Graded by CardScore AI — AI-powered pre-grade tool`,
     `(This is an AI estimate, not an official PSA/BGS/SGC grade)`,
   ].filter(Boolean)
   navigator.clipboard.writeText(lines.join('\n'))
@@ -802,7 +802,7 @@ export default function App() {
               V
             </div>
             <div>
-              <span className="font-black text-zinc-100 tracking-tight">VaultGrade</span>
+              <span className="font-black text-zinc-100 tracking-tight">CardScore</span>
               <span className="text-amber-500 text-xs ml-1.5 font-semibold uppercase tracking-widest">AI</span>
             </div>
           </div>
@@ -1040,7 +1040,7 @@ export default function App() {
                     const dataUrl = await generateGradeCard(report, cardName)
                     const a = document.createElement('a')
                     a.href = dataUrl
-                    a.download = `vaultgrade-${Date.now()}.png`
+                    a.download = `cardscore-${Date.now()}.png`
                     a.click()
                   }}
                   className="flex-1 py-2.5 rounded-lg font-semibold text-sm flex items-center justify-center gap-2 transition-all border border-amber-500/40 text-amber-400 hover:border-amber-500 hover:bg-amber-500/5"
@@ -1072,7 +1072,7 @@ export default function App() {
       </main>
 
       <footer className="border-t border-zinc-800/60 mt-16 py-6 text-center text-zinc-600 text-xs">
-        VaultGrade · AI-powered card grading · Not affiliated with PSA, BGS, or SGC
+        CardScore · AI-powered card grading · Not affiliated with PSA, BGS, or SGC
       </footer>
 
       <style>{`
