@@ -23,11 +23,9 @@ Then calculate an OVERALL PSA-style numeric grade (1–10 integer or .5 step) us
 - 2 GOOD: Heavily worn/damaged
 - 1 POOR: Completely destroyed
 
-IMPORTANT: For each issue, you must estimate its location on the card as normalized coordinates:
-- x: horizontal position from left edge (0.0 = far left, 1.0 = far right, 0.5 = center)
-- y: vertical position from top edge (0.0 = top, 1.0 = bottom, 0.5 = center)
-
-Examples: top-left corner = {x:0.05, y:0.05}, right edge center = {x:0.97, y:0.5}, card center = {x:0.5, y:0.5}
+IMPORTANT: For each issue, you must specify its location using ONLY one of these exact zone names:
+"top-left-corner", "top-right-corner", "bottom-left-corner", "bottom-right-corner",
+"top-edge", "bottom-edge", "left-edge", "right-edge", "center"
 
 Return ONLY a valid JSON object with no markdown, no explanation, no extra text:
 {
@@ -36,7 +34,7 @@ Return ONLY a valid JSON object with no markdown, no explanation, no extra text:
     "label": "<e.g. 'Excellent' | 'Near Mint' | 'Gem Mint'>",
     "explanation": "<1-2 sentence expert analysis>",
     "issues": [
-      { "description": "<specific issue>", "x": <0-1>, "y": <0-1> }
+      { "description": "<specific issue>", "zone": "<zone name from list above>" }
     ]
   },
   "corners": {
@@ -44,7 +42,7 @@ Return ONLY a valid JSON object with no markdown, no explanation, no extra text:
     "label": "<label>",
     "explanation": "<analysis>",
     "issues": [
-      { "description": "<specific issue>", "x": <0-1>, "y": <0-1> }
+      { "description": "<specific issue>", "zone": "<zone name>" }
     ]
   },
   "edges": {
@@ -52,7 +50,7 @@ Return ONLY a valid JSON object with no markdown, no explanation, no extra text:
     "label": "<label>",
     "explanation": "<analysis>",
     "issues": [
-      { "description": "<specific issue>", "x": <0-1>, "y": <0-1> }
+      { "description": "<specific issue>", "zone": "<zone name>" }
     ]
   },
   "surface": {
@@ -60,7 +58,7 @@ Return ONLY a valid JSON object with no markdown, no explanation, no extra text:
     "label": "<label>",
     "explanation": "<analysis>",
     "issues": [
-      { "description": "<specific issue>", "x": <0-1>, "y": <0-1> }
+      { "description": "<specific issue>", "zone": "<zone name>" }
     ]
   },
   "printQuality": {
@@ -68,7 +66,7 @@ Return ONLY a valid JSON object with no markdown, no explanation, no extra text:
     "label": "<label>",
     "explanation": "<analysis>",
     "issues": [
-      { "description": "<specific issue>", "x": <0-1>, "y": <0-1> }
+      { "description": "<specific issue>", "zone": "<zone name>" }
     ]
   },
   "overall": {
@@ -170,24 +168,40 @@ function ScoreRing({ score, size = 88 }) {
   )
 }
 
+const ZONE_COORDS = {
+  'top-left-corner':     { x: 0.08, y: 0.08 },
+  'top-right-corner':    { x: 0.92, y: 0.08 },
+  'bottom-left-corner':  { x: 0.08, y: 0.92 },
+  'bottom-right-corner': { x: 0.92, y: 0.92 },
+  'top-edge':            { x: 0.50, y: 0.04 },
+  'bottom-edge':         { x: 0.50, y: 0.96 },
+  'left-edge':           { x: 0.04, y: 0.50 },
+  'right-edge':          { x: 0.96, y: 0.50 },
+  'center':              { x: 0.50, y: 0.50 },
+}
+
 function AnnotatedImage({ imageFile, report, selectedCategory, onSelectCategory }) {
   const [tooltip, setTooltip] = useState(null)
-  const containerRef = useRef(null)
 
   const allMarkers = []
   Object.keys(CATEGORY_CONFIG).forEach((cat) => {
     const issues = report[cat]?.issues || []
     issues.forEach((issue, i) => {
-      if (issue && typeof issue === 'object' && issue.x !== undefined && issue.y !== undefined) {
-        allMarkers.push({
-          description: issue.description,
-          x: issue.x,
-          y: issue.y,
-          category: cat,
-          color: CATEGORY_COLORS[cat],
-          id: `${cat}-${i}`,
-        })
-      }
+      if (!issue || typeof issue !== 'object') return
+      const zone = issue.zone || 'center'
+      const coords = ZONE_COORDS[zone] || ZONE_COORDS['center']
+      // Offset overlapping markers in the same zone slightly
+      const siblings = allMarkers.filter((m) => m.zone === zone)
+      const offset = siblings.length * 0.04
+      allMarkers.push({
+        description: issue.description,
+        zone,
+        x: Math.min(0.95, coords.x + offset),
+        y: Math.min(0.95, coords.y + offset),
+        category: cat,
+        color: CATEGORY_COLORS[cat],
+        id: `${cat}-${i}`,
+      })
     })
   })
 
@@ -230,7 +244,7 @@ function AnnotatedImage({ imageFile, report, selectedCategory, onSelectCategory 
       </div>
 
       {/* Annotated image */}
-      <div ref={containerRef} className="relative inline-block w-full rounded-xl overflow-hidden border border-zinc-800">
+      <div className="relative w-full rounded-xl overflow-hidden border border-zinc-800">
         <img
           src={URL.createObjectURL(imageFile)}
           alt="Card front"
@@ -251,37 +265,25 @@ function AnnotatedImage({ imageFile, report, selectedCategory, onSelectCategory 
             onMouseEnter={() => setTooltip(marker)}
             onMouseLeave={() => setTooltip(null)}
           >
-            {/* Pulse ring */}
             <div
-              className="absolute inset-0 rounded-full animate-ping opacity-60"
-              style={{ backgroundColor: marker.color, transform: 'scale(1.8)' }}
+              className="absolute rounded-full animate-ping opacity-50"
+              style={{ backgroundColor: marker.color, width: 20, height: 20, top: -2, left: -2 }}
             />
-            {/* Dot */}
             <div
               className="relative w-4 h-4 rounded-full border-2 border-white cursor-pointer shadow-lg"
               style={{ backgroundColor: marker.color, boxShadow: `0 0 8px ${marker.color}` }}
             />
-
-            {/* Tooltip */}
             {tooltip?.id === marker.id && (
               <div
                 className="absolute z-20 w-44 pointer-events-none"
-                style={{
-                  bottom: '110%',
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                }}
+                style={{ bottom: '120%', left: '50%', transform: 'translateX(-50%)' }}
               >
                 <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-2.5 shadow-2xl text-xs">
                   <div className="font-bold mb-1" style={{ color: marker.color }}>
-                    {CATEGORY_CONFIG[marker.category].label}
+                    {CATEGORY_CONFIG[marker.category].label} — {marker.zone.replace(/-/g, ' ')}
                   </div>
                   <div className="text-zinc-300 leading-relaxed">{marker.description}</div>
                 </div>
-                <div
-                  className="w-2 h-2 rotate-45 mx-auto -mt-1"
-                  style={{ backgroundColor: '#27272a', border: '1px solid #3f3f46', borderTop: 'none', borderLeft: 'none' }}
-                />
               </div>
             )}
           </div>
@@ -290,13 +292,13 @@ function AnnotatedImage({ imageFile, report, selectedCategory, onSelectCategory 
         {allMarkers.length === 0 && (
           <div className="absolute inset-0 flex items-end justify-center pb-3 pointer-events-none">
             <span className="bg-zinc-900/80 text-zinc-400 text-xs px-3 py-1 rounded-full">
-              No specific flaw locations detected
+              No flaws detected
             </span>
           </div>
         )}
       </div>
 
-      <p className="text-zinc-600 text-xs">Hover a marker to see the flaw detail</p>
+      <p className="text-zinc-600 text-xs">Hover a marker to see the flaw · Click a category pill to filter</p>
     </div>
   )
 }
