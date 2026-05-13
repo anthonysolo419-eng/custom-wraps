@@ -98,3 +98,44 @@ If you encounter any issues with loading or applying wrap images, please check t
 
 * Ensure that the USB drive is formatted correctly and does not contain any map update or firmware update files.
 * Verify that the wrap images meet the requirements listed above.
+
+## 3D Print Generation
+
+Turn any wrap design into a physical 3D-printable object. The script converts a wrap PNG into an embossed STL file — a flat plate with the design raised as a heightmap on the top surface — ready for any slicer (PrusaSlicer, Bambu Studio, Cura, etc.).
+
+### Setup
+
+```bash
+pip install -r requirements.txt
+```
+
+### Usage
+
+```bash
+python generate_3d_print.py <wrap.png> [options]
+```
+
+**Options:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-o`, `--output` | `<input>.stl` | Output STL file path |
+| `--size MM` | `80` | Plate width and height in mm |
+| `--base MM` | `2` | Flat base thickness in mm |
+| `--height MM` | `3` | Maximum emboss height in mm |
+| `--resolution N` | `128` | Heightmap grid (NxN); higher = more detail |
+
+**Examples:**
+
+```bash
+# Basic — 80×80 mm plate from a Cybertruck example
+python generate_3d_print.py cybertruck/example/Camo_Blue.png
+
+# Custom size and output path
+python generate_3d_print.py model3/example/Sakura.png -o sakura_plate.stl --size 100
+
+# Higher detail (larger file, longer slice time)
+python generate_3d_print.py modely/example/Houndstooth.png --resolution 256 --height 4
+```
+
+The resulting STL is a watertight mesh (closed top, bottom, and four sides) suitable for FDM and resin printers.
