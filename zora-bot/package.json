@@ -1,0 +1,21 @@
+{
+  "name": "zora-bot",
+  "version": "0.1.0",
+  "description": "Trading bot for Zora coins on Base — paper-trading by default, live trading opt-in",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "scan": "tsx src/index.ts --scan-once",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@zoralabs/coins-sdk": "^0.7.1",
+    "dotenv": "^17.4.2",
+    "viem": "^2.53.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "tsx": "^4.23.0",
+    "typescript": "^6.0.3"
+  }
+}
